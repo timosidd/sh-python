@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
-"""
-webshell — миниатюрный веб-терминал для Linux. Только stdlib, ноль зависимостей.
-
-Запуск:   python3 app.py
-Открыть:  http://127.0.0.1:5000/
-"""
-import os, re, json, secrets, signal, subprocess, threading
+import os, re, json, secrets, subprocess, threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-HOST = os.environ.get("WSHELL_HOST", "127.0.0.1")   # ТОЛЬКО localhost по умолчанию!
-PORT = int(os.environ.get("WSHELL_PORT", "5000"))
-MAX_OUT = 200_000  # обрезка вывода
+HOST = os.environ.get("WSHELL_HOST", "0.0.0.0")
+PORT = int(os.environ.get("PORT", os.environ.get("WSHELL_PORT", "5000")))
+MAX_OUT = 200_000
 
-# ---- сессии терминала ---------------------------------------------------
 class ShellSession:
     def __init__(self):
         self.sid = secrets.token_hex(8)
@@ -31,7 +24,6 @@ class ShellSession:
                 out, err = p.stdout, p.stderr
             except subprocess.TimeoutExpired:
                 return {"stdout": "", "stderr": "команда прервана по таймауту (10 мин)", "cwd": self.cwd}
-            # cd обрабатываем сами, чтобы cwd сохранялся между командами
             m = re.match(r"^\s*cd\s*(.*?)\s*(?:&&|;|$)", cmd)
             if m:
                 target = m.group(1).strip().strip("'\"") or os.path.expanduser("~")
@@ -43,7 +35,7 @@ class ShellSession:
                     err = f"bash: cd: {target}: Нет такого файла или каталога"
             return {"stdout": out[:MAX_OUT], "stderr": err[:MAX_OUT], "cwd": self.cwd}
 
-SESSIONS: dict[str, ShellSession] = {}
+SESSIONS = {}
 LOCK = threading.Lock()
 
 def get_session(sid):
@@ -54,11 +46,10 @@ def get_session(sid):
             SESSIONS[s.sid] = s
         return s
 
-# ---- HTTP ---------------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
     server_version = "webshell/1.0"
 
-    def log_message(self, *a):  # тихий лог
+    def log_message(self, *a):
         pass
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
@@ -100,7 +91,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"ok": True, "cwd": s.cwd}))
         self._send(404, '{"error":"not found"}')
 
-# ---- фронтенд ------------------------------------------------------------
 HTML = r"""<!doctype html>
 <html lang="ru">
 <head>
