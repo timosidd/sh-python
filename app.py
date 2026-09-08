@@ -48,9 +48,10 @@ def get_session(sid):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "webshell/1.0"
+    protocol_version = "HTTP/1.1"
 
-    def log_message(self, *a):
-        pass
+    def log_message(self, fmt, *a):
+        print("[req]", self.address_string(), fmt % a, flush=True)
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         data = body.encode() if isinstance(body, str) else body
@@ -62,9 +63,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path.split("?", 1)[0] in ("/", "/index.html"):
-            return self._send(200, HTML, "text/html; charset=utf-8")
-        self._send(404, "not found", "text/plain; charset=utf-8")
+        p = self.path.split("?", 1)[0]
+        if p == "/healthz":
+            return self._send(200, '{"ok":true}')
+        if p.startswith("/api/"):
+            return self._send(404, '{"error":"not found"}')
+        return self._send(200, HTML, "text/html; charset=utf-8")
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
