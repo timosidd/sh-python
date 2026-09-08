@@ -2,13 +2,12 @@
 """
 webshell — миниатюрный веб-терминал для Linux. Только stdlib, ноль зависимостей.
 
-Запуск:   AUTH_TOKEN=$(openssl rand -hex 32) python3 app.py
-Открыть:  http://127.0.0.1:5000/?token=<AUTH_TOKEN>
+Запуск:   python3 app.py
+Открыть:  http://127.0.0.1:5000/
 """
 import os, re, json, secrets, signal, subprocess, threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-AUTH_TOKEN = os.environ.get("AUTH_TOKEN") or secrets.token_hex(16)
 HOST = os.environ.get("WSHELL_HOST", "127.0.0.1")   # ТОЛЬКО localhost по умолчанию!
 PORT = int(os.environ.get("WSHELL_PORT", "5000"))
 MAX_OUT = 200_000  # обрезка вывода
@@ -62,17 +61,6 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # тихий лог
         pass
 
-    def _auth(self) -> bool:
-        token = ""
-        q = self.path.split("?", 1)
-        if len(q) == 2:
-            for kv in q[1].split("&"):
-                k, _, v = kv.partition("=")
-                if k == "token":
-                    token = v
-        token = self.headers.get("X-Auth-Token", token)
-        return secrets.compare_digest(token, AUTH_TOKEN)
-
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         data = body.encode() if isinstance(body, str) else body
         self.send_response(code)
@@ -83,15 +71,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if not self._auth():
-            return self._send(401, "Unauthorized. Передай ?token=...", "text/plain; charset=utf-8")
         if self.path.split("?", 1)[0] in ("/", "/index.html"):
             return self._send(200, HTML, "text/html; charset=utf-8")
         self._send(404, "not found", "text/plain; charset=utf-8")
 
     def do_POST(self):
-        if not self._auth():
-            return self._send(401, '{"error":"unauthorized"}')
         path = self.path.split("?", 1)[0]
         n = int(self.headers.get("Content-Length", 0))
         if n > 1_000_000:
@@ -142,7 +126,6 @@ HTML = r"""<!doctype html>
 <div id="bar"></div>
 <input id="inp" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus placeholder="команда…">
 <script>
-const token = new URLSearchParams(location.search).get('token') || '';
 const inp = document.getElementById('inp');
 const log = document.getElementById('log');
 const bar = document.getElementById('bar');
@@ -153,13 +136,12 @@ function add(html){log.insertAdjacentHTML('beforeend',html);log.scrollTop=log.sc
 function prompt(){const c=bar.textContent||'';
   return '<span class="p">'+esc(c.replace(/^\/home\/[^/]+/,'~'))+'$ </span>';}
 
-add('<span class="d">webshell готов'+(token?'':' — <b class="e">токен не передан!</b>')+'</span>\n');
+add('<span class="d">webshell готов. Помни: сюда может зайти кто угодно.</span>\n');
 
 async function api(path, body){
   const r = await fetch(path, {method:'POST',
-    headers:{'Content-Type':'application/json','X-Auth-Token':token},
+    headers:{'Content-Type':'application/json'},
     body: JSON.stringify({...body, sid})});
-  if (r.status === 401){ add('<span class="e">401: неверный или отсутствующий токен</span>\n'); throw 0; }
   if (r.status === 413){ add('<span class="e">слишком большой запрос</span>\n'); throw 0; }
   return r.json();
 }
@@ -197,5 +179,5 @@ document.addEventListener('click', ()=>inp.focus());
 </html>"""
 
 if __name__ == "__main__":
-    print(f"\n  webshell: http://{HOST}:{PORT}/?token={AUTH_TOKEN}\n", flush=True)
+    print(f"\n  webshell: http://{HOST}:{PORT}/\n", flush=True)
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
